@@ -10,13 +10,16 @@ def so3_Jl(x):
     theta2 = theta**2
     I = torch.eye(3, device=x.device, dtype=x.dtype).expand(x.shape[:-1]+(3, 3))
     idx = (theta > torch.finfo(theta.dtype).eps)
-    coef1 = torch.zeros_like(theta, requires_grad=False)
-    coef1[idx] = (1-theta[idx].cos())/theta2[idx]
-    coef1[~idx] = 0.5 - (1.0/24.0) * theta2[~idx]
+    # coef1 = torch.zeros_like(theta, requires_grad=False)
+    # coef1[idx] = (1-theta[idx].cos())/theta2[idx]
+    # coef1[~idx] = 0.5 - (1.0/24.0) * theta2[~idx]
+    coef1 = torch.where(idx, (1-theta.cos())/theta2, (0.5 - (1.0/24.0)*theta2))
 
-    coef2 = torch.zeros_like(theta, requires_grad=False)
-    coef2[idx] = (theta[idx] - theta[idx].sin()) / (theta[idx] * theta2[idx])
-    coef2[~idx] = 1.0/6.0 - (1.0/120) * theta2[~idx]
+    # coef2 = torch.zeros_like(theta, requires_grad=False)
+    # coef2[idx] = (theta[idx] - theta[idx].sin()) / (theta[idx] * theta2[idx])
+    # coef2[~idx] = 1.0/6.0 - (1.0/120) * theta2[~idx]
+    coef2 = torch.where(idx, (theta - theta.sin()) / (theta * theta2), 1.0/6.0 - (1.0/120) * theta2)
+
     return (I + coef1 * K + coef2 * (K@K))
 
 
@@ -41,19 +44,23 @@ def calcQ(x):
     theta = torch.linalg.norm(phi, dim=-1, keepdim=True).unsqueeze(-1)
     theta2 = theta**2
     theta4 = theta2**2
+    theta5 = theta**5
     idx = (theta > torch.finfo(theta.dtype).eps)
     # coef1
-    coef1 = torch.zeros_like(theta, requires_grad=False)
-    coef1[idx] = (theta[idx] - theta[idx].sin()) / (theta2[idx] * theta[idx])
-    coef1[~idx] = 1.0 / 6.0 - (1.0 / 120.0) * theta2[~idx]
+    # coef1 = torch.zeros_like(theta, requires_grad=False)
+    # coef1[idx] = (theta[idx] - theta[idx].sin()) / (theta2[idx] * theta[idx])
+    # coef1[~idx] = 1.0 / 6.0 - (1.0 / 120.0) * theta2[~idx]
+    coef1 = torch.where(idx, (theta - theta.sin()) / (theta2 * theta), 1.0 / 6.0 - (1.0 / 120.0) * theta2)
     # coef2
-    coef2 = torch.zeros_like(theta, requires_grad=False)
-    coef2[idx] = (theta2[idx] + 2 * theta[idx].cos() - 2) / (2 * theta4[idx])
-    coef2[~idx] = 1.0 / 24.0 - (1.0 / 720.0) * theta2[~idx]
+    # coef2 = torch.zeros_like(theta, requires_grad=False)
+    # coef2[idx] = (theta2[idx] + 2 * theta[idx].cos() - 2) / (2 * theta4[idx])
+    # coef2[~idx] = 1.0 / 24.0 - (1.0 / 720.0) * theta2[~idx]
+    coef2 = torch.where(idx, (theta2 + 2 * theta.cos() - 2) / (2 * theta4), 1.0 / 24.0 - (1.0 / 720.0) * theta2)
     # coef3
-    coef3 = torch.zeros_like(theta, requires_grad=False)
-    coef3[idx] = (2 * theta[idx] - 3 * theta[idx].sin() + theta[idx] * theta[idx].cos()) / (2 * theta4[idx] * theta[idx])
-    coef3[~idx] = 1.0 / 120.0 - (1.0 / 2520.0) * theta2[~idx]
+    # coef3 = torch.zeros_like(theta, requires_grad=False)
+    # coef3[idx] = (2 * theta[idx] - 3 * theta[idx].sin() + theta[idx] * theta[idx].cos()) / (2 * theta4[idx] * theta[idx])
+    # coef3[~idx] = 1.0 / 120.0 - (1.0 / 2520.0) * theta2[~idx]
+    coef3 = torch.where(idx, (2 * theta - 3 * theta.sin() + theta * theta.cos()) / (2 * theta5), 1.0 / 120.0 - (1.0 / 2520.0) * theta2)
     Q = 0.5 * Tau + coef1 * (Phi@Tau + Tau@Phi + Phi@Tau@Phi) + \
         coef2 * (Phi@Phi@Tau + Tau@Phi@Phi - 3*Phi@Tau@Phi) + coef3 * (Phi@Tau@Phi@Phi + Phi@Phi@Tau@Phi)
     return Q
@@ -212,7 +219,9 @@ def SE3_Adj(X):
 
 def SE3_Matrix(X):
     T = torch.cat([SO3_Matrix(X[..., 3:]), X[..., :3, None]], dim=-1)
-    E = torch.tensor([0, 0, 0, 1], dtype=T.dtype, device=T.device)
+    # E = torch.tensor([0, 0, 0, 1], dtype=T.dtype, device=T.device)
+    E = torch.zeros((4,), dtype=T.dtype, device=T.device)
+    E[-1].add_(1)
     T = torch.cat([T, E.repeat(X.shape[:-1]+(1, 1))], dim=-2)
     return T
 
@@ -346,13 +355,20 @@ class so3_Exp(torch.autograd.Function):
         theta_half, theta2 = 0.5 * theta, theta * theta
         theta4 = theta2 * theta2
 
-        imag_factor = torch.zeros_like(theta, requires_grad=False)
-        real_factor = torch.zeros_like(theta, requires_grad=False)
+        # imag_factor = torch.zeros_like(theta, requires_grad=False)
+        # real_factor = torch.zeros_like(theta, requires_grad=False)
         idx = (theta > torch.finfo(theta.dtype).eps)
-        imag_factor[idx] = torch.sin(theta_half[idx]) / theta[idx]
-        real_factor[idx] = torch.cos(theta_half[idx])
-        imag_factor[~idx] = 0.5 - (1.0/48.0) * theta2[~idx] + (1.0/3840.0) * theta4[~idx]
-        real_factor[~idx] = 1.0 - (1.0/8.0) * theta2[~idx] + (1.0/384.0) * theta4[~idx]
+        # imag_factor[idx] = torch.sin(theta_half[idx]) / theta[idx]
+        # real_factor[idx] = torch.cos(theta_half[idx])
+        # imag_factor[~idx] = 0.5 - (1.0/48.0) * theta2[~idx] + (1.0/3840.0) * theta4[~idx]
+        # real_factor[~idx] = 1.0 - (1.0/8.0) * theta2[~idx] + (1.0/384.0) * theta4[~idx]
+
+        imag_factor = torch.where(idx,
+                                  torch.sin(theta_half) / theta,
+                                  0.5 - (1.0/48.0) * theta2 + (1.0/3840.0) * theta4)
+        real_factor = torch.where(idx,
+                                  torch.cos(theta_half),
+                                  1.0 - (1.0/8.0) * theta2 + (1.0/384.0) * theta4)
 
         return torch.cat([input * imag_factor, real_factor], -1)
 
