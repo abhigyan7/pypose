@@ -29,10 +29,9 @@ def so3_Jl_inv(x):
     I = torch.eye(3, device=x.device, dtype=x.dtype).expand(x.shape[:-1]+(3, 3))
     idx = (theta > torch.finfo(theta.dtype).eps)
     coef2 = torch.zeros_like(theta, requires_grad=False)
-    theta_idx = theta[idx]
+    theta_idx = theta
     theta_half_idx, theta2_idx = 0.5 * theta_idx, theta_idx * theta_idx
-    coef2[idx] = (1.0 - theta_idx * theta_half_idx.cos() / (2.0 * theta_half_idx.sin())) / theta2_idx
-    coef2[~idx] = 1.0 / 12.0
+    coef2 = torch.where(idx, (1.0 - theta_idx * theta_half_idx.cos() / (2.0 * theta_half_idx.sin())) / theta2_idx, 1.0/12.0)
     return (I - 0.5 * K + coef2 * (K @ K))
 
 def so3_adj(x):
@@ -321,16 +320,26 @@ class SO3_Log(torch.autograd.Function):
         w_abs = torch.abs(w)
         v_larger_than_eps = (v_norm > eps)
         w_larger_than_eps = (w_abs > eps)
-        idx1 = v_larger_than_eps & w_larger_than_eps
-        idx2 = v_larger_than_eps & (~w_larger_than_eps)
-        idx3 = (~v_larger_than_eps)
+        # idx1 = v_larger_than_eps & w_larger_than_eps
+        # idx2 = v_larger_than_eps & (~w_larger_than_eps)
+        # idx3 = (~v_larger_than_eps)
 
-        factor = torch.zeros_like(v_norm, requires_grad=False)
-        factor[idx1] = 2.0 * torch.atan(v_norm[idx1]/w[idx1]) / v_norm[idx1]
-        factor[idx2] = pm(w[idx2]) * torch.pi / v_norm[idx2]
-        factor[idx3] = 2.0 * (1.0 / w[idx3] - v_norm[idx3] * v_norm[idx3] / (3 * w[idx3]**3))
-        output = factor * v
-        return output
+        return torch.where(
+            v_larger_than_eps,
+            torch.where(
+                w_larger_than_eps,
+                2.0 * torch.atan(v_norm/w) / v_norm,
+                pm(w) * torch.pi / v_norm,
+            ),
+            2.0 * (1.0 / w - v_norm * v_norm / (3 * w**3))
+        ) * v
+
+        # factor = torch.zeros_like(v_norm, requires_grad=False)
+        # factor[idx1] = 2.0 * torch.atan(v_norm[idx1]/w[idx1]) / v_norm[idx1]
+        # factor[idx2] = pm(w[idx2]) * torch.pi / v_norm[idx2]
+        # factor[idx3] = 2.0 * (1.0 / w[idx3] - v_norm[idx3] * v_norm[idx3] / (3 * w[idx3]**3))
+        # output = factor * v
+        # return output
 
     @staticmethod
     def setup_context(ctx: Any, inputs, output) -> Any:

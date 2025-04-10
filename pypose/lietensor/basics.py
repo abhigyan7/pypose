@@ -1,10 +1,78 @@
 import math
 import torch
+import functools
 '''
 This basics file includes functions needed to implement LieTensor.
 '''
 
+@functools.cache
+def get_skew_components(device, dtype):
+    return torch.tensor ([
+         [[0, 0, 0],
+          [0, 0, -1.0],
+          [0, 1.0, 0]],
+         [[0, 0, 1.0],
+          [0, 0, 0],
+          [-1.0, 0, 0.0]],
+         [[0, -1.0, 0],
+          [1.0, 0, 0],
+          [0, 0, 0.0]]
+        ],
+        device=device,
+        dtype=dtype,
+        requires_grad=False,
+    )
+
+    
 def vec2skew(input:torch.Tensor) -> torch.Tensor:
+    r"""
+    Convert batched vectors to skew matrices.
+
+    Args:
+        input (Tensor): the tensor :math:`\mathbf{x}` to convert.
+
+    Return:
+        Tensor: the skew matrices :math:`\mathbf{y}`.
+
+    Shape:
+        Input: :obj:`(*, 3)`
+
+        Output: :obj:`(*, 3, 3)`
+
+    .. math::
+        {\displaystyle \mathbf{y}_i={\begin{bmatrix}\,\,
+        0&\!-x_{i,3}&\,\,\,x_{i,2}\\\,\,\,x_{i,3}&0&\!-x_{i,1}
+        \\\!-x_{i,2}&\,\,x_{i,1}&\,\,0\end{bmatrix}}}
+
+    Note:
+        The last dimension of the input tensor has to be 3.
+
+    Example:
+        >>> pp.vec2skew(torch.randn(1,3))
+        tensor([[[ 0.0000, -2.2059, -1.2761],
+                [ 2.2059,  0.0000,  0.2929],
+                [ 1.2761, -0.2929,  0.0000]]])
+    """
+    v = input.tensor() if hasattr(input, 'ltype') else input
+    assert v.shape[-1] == 3, "Last dim should be 3"
+    # O = torch.zeros(v.shape[:-1], device=v.device, dtype=v.dtype, requires_grad=v.requires_grad)
+    # return torch.stack([torch.stack([        O, -v[...,2],  v[...,1]], dim=-1),
+    #                     torch.stack([ v[...,2],         O, -v[...,0]], dim=-1),
+    #                     torch.stack([-v[...,1],  v[...,0],         O], dim=-1)], dim=-2)
+
+    skew_components = get_skew_components(v.device, v.dtype)
+    x,y,z = v.unbind(-1)
+    x = x[..., None, None]
+    y = y[..., None, None]
+    z = z[..., None, None]
+    x_sk = skew_components[0].view(1, 3, 3)
+    y_sk = skew_components[1].view(1, 3, 3)
+    z_sk = skew_components[2].view(1, 3, 3)
+    skew_mat = x * x_sk + y * y_sk + z * z_sk
+    return skew_mat
+
+
+def vec2skew_old(input:torch.Tensor) -> torch.Tensor:
     r"""
     Convert batched vectors to skew matrices.
 
